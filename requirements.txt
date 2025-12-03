@@ -1,0 +1,27 @@
+# Core
+python-dotenv>=1.0.0
+requests>=2.31.0
+
+# UI
+streamlit>=1.31.0
+
+# OpenAI (new SDK used by this repo)
+openai>=1.40.0
+
+# Vector DB
+chromadb>=0.5.0
+
+# LlamaIndex + integrations used
+llama-index>=0.11.0
+llama-index-vector-stores-chroma>=0.1.7
+llama-index-embeddings-huggingface>=0.2.0
+llama-index-llms-openai>=0.1.11
+
+# Hugging Face stack for embeddings
+transformers>=4.41.0
+huggingface-hub>=0.23.0
+# Torch is required by many HF models; choose a version compatible with your CUDA/CPU
+torch>=2.2.0
+
+# Google Gemini (optional path used in sample1.py)
+google-generativeai>=0.7.0
