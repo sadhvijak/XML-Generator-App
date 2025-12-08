@@ -503,7 +503,30 @@ STEP 6: Validate Complete Structure
 Return ONLY the complete, valid XML.
 No explanations, no markdown, no comments.
 
-Fixed XML:"""
+{base_context}
+
+{generic_context}
+
+**Current Validation Errors (Iteration {iteration}):**
+{chr(10).join(f"- {err}" for err in errors)}
+
+**Error Type:** {error_type}
+
+**XML to Fix:**
+```xml
+{xml_text}
+```
+
+**Instructions:**
+1. Perform comprehensive XML validation
+2. Check element ordering and nesting
+3. Verify reference integrity
+4. Fix all reported errors
+5. Maintain flow identity unchanged
+6. Return ONLY the complete fixed XML without explanation
+
+Return the fixed XML now:"""
+
     return call_gemini(prompt)
 
 
@@ -780,7 +803,7 @@ def gemini_fix_autolaunched_flow(xml_text: str, errors: List[str], error_type: s
 {xml_text}
 ```
 
-**Instructions:**
+# **Instructions:**
 1. Identify the trigger configuration in <start> element
 2. Verify all record operations have required <object> tags
 3. Check filter logic consistency
@@ -788,12 +811,94 @@ def gemini_fix_autolaunched_flow(xml_text: str, errors: List[str], error_type: s
 5. Ensure all connectors point to valid elements
 6. Fix all reported errors while preserving business logic
 7. Maintain all flow identity elements unchanged
-8. Return ONLY the complete fixed XML without any explanation
+8. Return ONLY the complete, valid XML.
 
-Return the fixed XML now:"""
-
+Fixed XML:"""
     return call_gemini(prompt)
 
+
+def gemini_fix_record_triggered_flow(xml_text: str, errors: List[str], error_type: str, iteration: int) -> Optional[str]:
+    """Fix record-triggered flow with specific validation rules."""
+    
+    base_context = get_base_validation_context()
+    
+    record_triggered_context = """
+**RECORD-TRIGGERED FLOW VALIDATION RULES:**
+
+1. **ProcessType Requirements:**
+   - Must be "AutoLaunchedFlow"
+   - Record-triggered flows are AutoLaunched with trigger metadata
+
+2. **<start> Element (MANDATORY):**
+   Must contain in exact order:
+   - <locationX>, <locationY>
+   - <doesRequireRecordChangedToMeetCriteria> (true/false)
+   - <filterFormula> (optional, for entry criteria)
+   - <object> (triggering Salesforce object)
+   - <recordTriggerType> (Create | Update | Delete | CreateAndUpdate)
+   - <scheduledPaths> OR <connector> (path to first element)
+   - <triggerType> (RecordBeforeSave | RecordAfterSave)
+
+3. **Context Variables:**
+   - $Record (current record being processed)
+   - $Record.FieldName (field access)
+   - $Record__Prior (only for Update triggers)
+   - $Record.RelatedObject.Field (spanning relationships)
+
+4. **Element Requirements:**
+   - ALL elements must have <locationX> and <locationY>
+   - recordLookups use <filterLogic>, NOT conditionLogic
+   - Decisions use <conditionLogic>
+   - All connectors need valid <targetReference>
+
+5. **Common Errors:**
+   - Missing <object> in <start>
+   - Wrong triggerType (use RecordBeforeSave/RecordAfterSave)
+   - Wrong recordTriggerType (use Create/Update/Delete/CreateAndUpdate)
+   - Using <filters> instead of <filterFormula> in <start>
+   - Missing <doesRequireRecordChangedToMeetCriteria>
+   - Invalid $Record context variable references
+   - Mixing up filterLogic and conditionLogic
+
+6. **Async Execution Pattern:**
+   When using <scheduledPaths>:
+```xml
+   <scheduledPaths>
+       <connector>
+           <targetReference>ElementName</targetReference>
+       </connector>
+       <pathType>AsyncAfterCommit</pathType>
+   </scheduledPaths>
+```
+"""
+
+    prompt = f"""You are fixing a Salesforce Record-Triggered Flow XML.
+
+{base_context}
+
+{record_triggered_context}
+
+**Current Validation Errors (Iteration {iteration}):**
+{chr(10).join(f"- {err}" for err in errors)}
+
+**Error Type:** {error_type}
+
+**XML to Fix:**
+```xml
+{xml_text}
+```
+
+**Instructions:**
+1. Verify <start> element has all required record-trigger fields
+2. Ensure triggerType is RecordBeforeSave or RecordAfterSave
+3. Ensure recordTriggerType is Create, Update, Delete, or CreateAndUpdate
+4. Check all $Record variable references are valid
+5. Verify filterLogic in recordLookups, conditionLogic in decisions
+6. Fix all reported errors while maintaining flow logic
+7. Return ONLY the complete fixed XML without explanation
+
+Fixed XML:"""
+    return call_gemini(prompt)
 
 def gemini_fix_generic_flow(xml_text: str, errors: List[str], error_type: str, iteration: int) -> Optional[str]:
     """Fix any flow type with general validation (fallback)."""
@@ -855,7 +960,6 @@ Return the fixed XML now:"""
 
     return call_gemini(prompt)
 
-#SALESFORCE DEPLOYMENT
 def start_deploy(zip_bytes: bytes, check_only: bool = False) -> Tuple[bool, Dict[str, Any]]:
     """Deploy metadata to Salesforce."""
     url = f"{INSTANCE_URL}/services/Soap/m/{API_VERSION}"
@@ -973,11 +1077,17 @@ def auto_deploy_flow(flow_name: str, xml_content: str, check_only: bool = False)
     
     # Map flow types to fix functions
     fix_functions = {
+
         'screen': gemini_fix_screen_flow,
+
         'autolaunched': gemini_fix_autolaunched_flow,
-        'record-triggered': gemini_fix_autolaunched_flow,
+
+        'record-triggered': gemini_fix_record_triggered_flow,
+
         'scheduled': gemini_fix_autolaunched_flow,
+
         'generic': gemini_fix_generic_flow
+
     }
     
     fix_function = fix_functions.get(flow_type, gemini_fix_generic_flow)
