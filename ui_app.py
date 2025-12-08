@@ -37,16 +37,70 @@ def generate_xml_with_openai(requirement: str, flow_type_hint: Optional[str] = N
 
     client = OpenAI(api_key=api_key)
 
-    flow_type = (
-        flow_type_hint
-        if flow_type_hint in {"Screen", "AutoLaunched"}
-        else ("Screen" if any(k in requirement.lower() for k in ["screen", "user", "input", "display"]) else "AutoLaunched")
-    )
+    record_trigger_keywords = [
+        "record-triggered",
+        "record triggered",
+        "before save",
+        "after save",
+        "$record",
+        "$record__prior",
+        "on create",
+        "on update",
+        "on delete",
+    ]
+    screen_keywords = ["screen", "user", "input", "display", "wizard", "ui"]
+
+    normalized_hint = None if flow_type_hint in {None, "AutoDetect"} else flow_type_hint
+    if normalized_hint in {"Screen", "AutoLaunched", "Record-Triggered"}:
+        flow_type = normalized_hint
+    else:
+        requirement_lower = requirement.lower()
+        if any(keyword in requirement_lower for keyword in record_trigger_keywords):
+            flow_type = "Record-Triggered"
+        elif any(keyword in requirement_lower for keyword in screen_keywords):
+            flow_type = "Screen"
+        else:
+            flow_type = "AutoLaunched"
+
+    flow_type_display = {
+        "Screen": "Screen",
+        "AutoLaunched": "Auto-Launched",
+        "Record-Triggered": "Record-Triggered",
+    }.get(flow_type, flow_type)
+
+    flow_guidance = {
+        "Screen": """
+CRITICAL SCREEN FLOW RULES:
+- Use <fields> (not <screenFields>) with <fieldText>
+- fieldType values must follow enum casing (DisplayText, Text, etc.)
+- Provide locationX/locationY for every element
+- Ensure connectors form a valid path from <start>
+""".strip(),
+        "AutoLaunched": """
+CRITICAL AUTO-LAUNCHED FLOW RULES:
+- Validate <start> trigger metadata when present
+- All record operations (recordLookups/Creates/Updates) need <object>
+- Provide <filterLogic> when 2+ <filters> exist
+- Finalize connectors so every branch reaches an end element
+""".strip(),
+        "Record-Triggered": """
+CRITICAL RECORD-TRIGGERED FLOW RULES:
+- <processType> must be AutoLaunchedFlow
+- <start> requires <object>, <recordTriggerType>, and <triggerType>
+- Align triggerType (RecordBeforeSave/RecordAfterSave) with automation intent
+- Use $Record__Prior only for update triggers
+- Keep locationX/locationY + connector ordering inside <start>
+""".strip(),
+    }
+
+    guidance_block = flow_guidance.get(flow_type, "")
+    if guidance_block:
+        guidance_block = guidance_block + "\n\n"
 
     prompt = f"""
-Generate valid Salesforce {flow_type} Flow XML for: "{requirement}"
+Generate valid Salesforce {flow_type_display} Flow XML for: "{requirement}"
 
-CRITICAL XML VALIDATION - 7-Check Process:
+{guidance_block}CRITICAL XML VALIDATION - 7-Check Process:
 1. Correct tag name (exact case, exists in schema)
 2. Required children present (no missing/invented tags)
 3. Correct parent placement (proper nesting)
@@ -67,7 +121,7 @@ OUTPUT:
         resp = client.chat.completions.create(
             model="gpt-4o",
             messages=[
-                {"role": "system", "content": f"You are a Salesforce {flow_type} Flow XML generator. Produce deployment-ready metadata XML."},
+                {"role": "system", "content": f"You are a Salesforce {flow_type_display} Flow XML generator. Produce deployment-ready metadata XML."},
                 {"role": "user", "content": prompt},
             ],
             temperature=0.1,
@@ -103,7 +157,11 @@ with col1:
     )
 with col2:
     flow_name = st.text_input("Flow API Name (no spaces)", value="MySampleFlow")
-    flow_type_hint = st.selectbox("Flow type (hint)", ["AutoDetect", "Screen", "AutoLaunched"], index=0)
+    flow_type_hint = st.selectbox(
+        "Flow type (hint)",
+        ["AutoDetect", "Screen", "AutoLaunched", "Record-Triggered"],
+        index=0,
+    )
 
 st.divider()
 
@@ -213,5 +271,3 @@ if sf_validate_click and creds_ok and st.session_state.xml_text.strip():
 if sf_deploy_click and creds_ok and st.session_state.xml_text.strip():
     st.warning("Starting FULL deployment to Salesforce...")
     _stream_sf_operation(flow_name, st.session_state.xml_text, check_only=False)
-
-
