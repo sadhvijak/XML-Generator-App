@@ -37,7 +37,7 @@ SF_CONSUMER_KEY = os.getenv("SALESFORCE_CONSUMER_KEY", "").strip()
 SF_CONSUMER_SECRET = os.getenv("SALESFORCE_CONSUMER_SECRET", "").strip()
 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "").strip()
-GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-pro")
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
 
 if GEMINI_AVAILABLE and GEMINI_API_KEY:
     try:
@@ -1287,3 +1287,4 @@ if __name__ == "__main__":
         import traceback
         print(traceback.format_exc())
         exit(1)
+
