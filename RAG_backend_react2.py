@@ -166,6 +166,12 @@ CRITICAL SCREEN FLOW RULES TO VERIFY:
 - locationX/locationY REQUIRED for ALL elements
 - Order: name → label → locationX → locationY → other tags
 
+RECORD-TRIGGERED FLOW KEY CHECKS:
+- <processType> must be AutoLaunchedFlow
+- <start> must include <object>, <recordTriggerType>, and <triggerType>
+- Align <triggerType> (RecordBeforeSave/RecordAfterSave) with automation requirements
+- Validate $Record/$Record__Prior usage and entry filter configuration
+
 Be thorough - query every relevant tool!
 """
 
@@ -180,16 +186,47 @@ ctx = Context(agent)
 
 requirement = input("\n Enter your Salesforce Flow requirement:\n> ")
 
-# Simple flow type detection
-flow_type = "Screen" if any(keyword in requirement.lower() for keyword in ["screen", "user", "input", "display"]) else "AutoLaunched"
-print(f"\n Detected flow type: {flow_type}")
+requirement_lower = requirement.lower()
+
+record_trigger_keywords = [
+    "record-triggered",
+    "record triggered",
+    "before save",
+    "after save",
+    "after-save",
+    "before-save",
+    "triggered on record",
+    "$record",
+    "$record__prior",
+    "on create",
+    "on update",
+    "on delete"
+]
+
+screen_keywords = ["screen", "user", "input", "display", "wizard", "ui"]
+
+if any(keyword in requirement_lower for keyword in record_trigger_keywords):
+    flow_type = "Record-Triggered"
+elif any(keyword in requirement_lower for keyword in screen_keywords):
+    flow_type = "Screen"
+else:
+    flow_type = "AutoLaunched"
+
+flow_type_display_map = {
+    "Screen": "Screen",
+    "AutoLaunched": "Auto-Launched",
+    "Record-Triggered": "Record-Triggered"
+}
+flow_type_display = flow_type_display_map.get(flow_type, flow_type)
+
+print(f"\n Detected flow type: {flow_type_display}")
 
 # === Use ReAct Agent to retrieve patterns ===
-print(f"\n ReAct Agent analyzing {flow_type} Flow requirement...")
+print(f"\n ReAct Agent analyzing {flow_type_display} Flow requirement...")
 print("=" * 60)
 
 agent_query = f"""
-Analyze this Salesforce {flow_type} Flow requirement and gather ALL necessary XML patterns:
+Analyze this Salesforce {flow_type_display} Flow requirement and gather ALL necessary XML patterns:
 
 REQUIREMENT: {requirement}
 
@@ -197,7 +234,8 @@ Please systematically query ALL relevant pattern types:
 
 1. **element_templates_tool**: Get templates for each element needed
    - For Screen flows: Verify fields vs screenFields, fieldText vs label, DisplayText vs Label
-   - For AutoLaunched: Verify recordLookups structure, trigger configuration
+   - For Auto-Launched: Verify recordLookups structure, trigger configuration
+   - For Record-Triggered: Validate <start> trigger metadata (<object>, <recordTriggerType>, <triggerType>), entry criteria filters, and $Record usage
    
 2. **parent_child_relationships_tool**: Get nesting relationships
 
@@ -269,7 +307,7 @@ if flow_type == "Screen":
     Use DisplayText NOT Label for fieldType
 
 2. **ProcessType:**
-    Must be "Flow" (NOT "AutoLaunchedFlow")
+    Must be "Flow"
 
 3. **locationX/locationY (MANDATORY):**
    - EVERY element MUST have both tags
@@ -343,12 +381,12 @@ EXAMPLES:
 <screens>
     <name>Screen1</name>
     <label>Enter Information</label>
-    <locationX>50</locationX>  <!-- ✅ REQUIRED -->
-    <locationY>0</locationY>   <!-- ✅ REQUIRED -->
-    <fields>  <!-- ✅ Correct tag name -->
+    <locationX>50</locationX>  <!--  REQUIRED -->
+    <locationY>0</locationY>   <!--  REQUIRED -->
+    <fields>  <!--  Correct tag name -->
         <name>inputField1</name>
         <dataType>String</dataType>
-        <fieldText>Enter your name</fieldText>  <!-- ✅ Use fieldText -->
+        <fieldText>Enter your name</fieldText>  <!--  Use fieldText -->
         <fieldType>InputField</fieldType>
         <isRequired>false</isRequired>
     </fields>
@@ -363,12 +401,12 @@ EXAMPLES:
 <screens>
     <name>WelcomeScreen</name>
     <label>Welcome</label>
-    <locationX>50</locationX>   <!-- ✅ REQUIRED -->
-    <locationY>158</locationY>  <!-- ✅ REQUIRED (below first screen) -->
+    <locationX>50</locationX>   <!--  REQUIRED -->
+    <locationY>158</locationY>  <!--  REQUIRED (below first screen) -->
     <fields>
         <name>displayText1</name>
         <fieldText>Welcome to the flow!</fieldText>
-        <fieldType>DisplayText</fieldType>  <!-- ✅ Use DisplayText, not Label -->
+        <fieldType>DisplayText</fieldType>  <!-- Use DisplayText, not Label -->
     </fields>
     <allowBack>true</allowBack>
     <allowFinish>true</allowFinish>
@@ -381,8 +419,8 @@ EXAMPLES:
 <decisions>
     <name>CheckValue</name>
     <label>Check Value</label>
-    <locationX>50</locationX>   <!-- ✅ REQUIRED -->
-    <locationY>316</locationY>  <!-- ✅ REQUIRED -->
+    <locationX>50</locationX>   <!--  REQUIRED -->
+    <locationY>316</locationY>  <!--  REQUIRED -->
     <defaultConnector>
         <targetReference>DefaultScreen</targetReference>
     </defaultConnector>
@@ -411,8 +449,8 @@ EXAMPLES:
     <dataType>String</dataType>
     <isInput>false</isInput>
     <isOutput>false</isOutput>
-    <locationX>50</locationX>   <!-- ✅ REQUIRED even for variables -->
-    <locationY>474</locationY>  <!-- ✅ REQUIRED -->
+    <locationX>50</locationX>   <!--  REQUIRED even for variables -->
+    <locationY>474</locationY>  <!--  REQUIRED -->
 </variables>
 ```
 
@@ -421,8 +459,8 @@ EXAMPLES:
 <recordCreates>
     <name>CreateAccount</name>
     <label>Create Account</label>
-    <locationX>50</locationX>   <!-- ✅ REQUIRED -->
-    <locationY>632</locationY>  <!-- ✅ REQUIRED -->
+    <locationX>50</locationX>   <!--  REQUIRED -->
+    <locationY>632</locationY>  <!--  REQUIRED -->
     <inputAssignments>
         <field>Name</field>
         <value>
@@ -543,39 +581,94 @@ SCREEN FLOW STRUCTURE REQUIREMENTS
      - <connector> (for navigation)
 """
 
-else:  # AutoLaunched
+elif flow_type == "Record-Triggered":
+    flow_specific_rules = """
+**RECORD-TRIGGERED FLOW CRITICAL RULES:**
+
+1. **Trigger Configuration:**
+   - <processType> must be "AutoLaunchedFlow".
+   - <start> MUST include:
+     * <object> — API name of triggering object
+     * <recordTriggerType> — Create | Update | CreateAndUpdate | Delete
+     * <triggerType> — RecordBeforeSave | RecordAfterSave
+   - Ensure <triggerType> aligns with recordTriggerType (BeforeSave → RecordBeforeSave, etc.).
+
+2. **Entry Criteria:**
+   - Use <filterLogic> when multiple <filters> exist.
+   - Each <filters> block requires <field>, <operator>, and <value> (wrap values in <stringValue>, <booleanValue>, or <elementReference>).
+   - Scheduled paths are NOT allowed for pure record-triggered flows.
+
+3. **$Record Usage:**
+   - $Record.<Field> references are permitted throughout flow logic.
+   - Use $Record__Prior only when recordTriggerType involves Update.
+   - Never reference $Record__Prior in Create/Delete triggers.
+
+4. **Start Ordering & Connectors:**
+   - <start> must contain <locationX>, <locationY>, then <connector> before trigger metadata.
+   - <connector><targetReference> must point to the first element in the automation path.
+   - locationX/locationY required on ALL elements; follow 176px / 158px spacing guidelines.
+
+5. **Common Path Elements:**
+   - <recordUpdates>, <assignments>, <decisions>, <subflows> should reference $Record fields.
+   - Validate each connector path reaches an end element (no dangling nodes).
+
+6. **Common Errors to Avoid:**
+   - Missing <object> or <recordTriggerType> in <start>.
+   - Using <conditionLogic> instead of <filterLogic> inside <start>.
+   - Mismatched <triggerType> (e.g., "onAfter") — map to valid enum values.
+   - $Record__Prior referenced on non-Update triggers.
+
+**START TEMPLATE EXAMPLE:**
+```xml
+<start>
+    <locationX>0</locationX>
+    <locationY>0</locationY>
+    <connector>
+        <targetReference>FirstAssignment</targetReference>
+    </connector>
+    <object>Account</object>
+    <recordTriggerType>CreateAndUpdate</recordTriggerType>
+    <triggerType>RecordAfterSave</triggerType>
+    <filterLogic>and</filterLogic>
+    <filters>
+        <field>IsActive__c</field>
+        <operator>EqualTo</operator>
+        <value>
+            <booleanValue>true</booleanValue>
+        </value>
+    </filters>
+</start>
+```
+"""
+
+else:  # AutoLaunched (non-triggered)
     flow_specific_rules = """
 **AUTOLAUNCHED FLOW CRITICAL RULES:**
 
 1. **ProcessType:**
     Must be "AutoLaunchedFlow"
 
-2. **<start> Element (REQUIRED):**
-   - Must include: locationX, locationY, connector
-   - For record-triggered: object, recordTriggerType, triggerType
-   - For scheduled: scheduledPaths
-
-3. **Record Operations:**
+2. **Record Operations:**
    - RecordLookups: Use <filterLogic> (NOT conditionLogic)
    - Must have: name, label, object, getFirstRecordOnly, queriedFields
    - NO duplicate names
 
-4. **Decisions:**
+3. **Decisions:**
    - Use <conditionLogic> inside <rules> (NOT in recordLookups)
 
-5. **System Variables:**
+4. **System Variables:**
    - $Record, $Record.Id, $Record.FieldName
    - $Record__Prior (Update triggers only)
 
-6. **locationX/locationY (MANDATORY):**
+5. **locationX/locationY (MANDATORY):**
    - Required for ALL elements
 
 **COMMON AUTOLAUNCHED ERRORS TO AVOID:**
-❌ Using conditionLogic in recordLookups → Use filterLogic
-❌ Missing <queriedFields> in recordLookups
-❌ Duplicate recordLookups names
-❌ Missing <object> in record operations
-❌ Using $Record without record trigger
+ Using conditionLogic in recordLookups → Use filterLogic
+ Missing <queriedFields> in recordLookups
+ Duplicate recordLookups names
+ Missing <object> in record operations
+ Using $Record without record trigger
 
 EXAMPLE:
 <recordLookups>
@@ -618,7 +711,7 @@ EXAMPLE:
 
 # === Prepare final generation prompt ===
 prompt = f"""
-Generate valid Salesforce {flow_type} Flow XML for: "{requirement}"
+Generate valid Salesforce {flow_type_display} Flow XML for: "{requirement}"
 
 AGENT-RETRIEVED PATTERNS:
 {pattern_guidance}
@@ -634,6 +727,7 @@ CRITICAL XML VALIDATION - 7-Check Process:
 5.  Position constraints (locationX/locationY on ALL elements)
 6.  Tag compatibility (follow co-occurrence rules)
 7.  Exact enum values (DisplayText not Label, EqualTo not equals)
+8.  Record-triggered start metadata present when applicable (<object>, <recordTriggerType>, <triggerType>)
 
 INTEGRATION RULES:
 - Use XML examples as structural templates
@@ -652,7 +746,7 @@ MANDATORY CHECKS:
 - Proper child element ordering
 - No conflicting elements
 - Correct processType for flow type
-- Start element presence matches flow type
+- Start element presence matches flow type and contains required trigger metadata
 
 OUTPUT:
 - Return ONLY XML (no markdown, no explanations)
@@ -662,14 +756,14 @@ OUTPUT:
 - Schema-compliant, deployment-ready
 """
 
-print(f"Generating {flow_type} Flow XML ")
+print(f"Generating {flow_type_display} Flow XML ")
 
 response = client.chat.completions.create(
     model="gpt-4o",
     messages=[
         {
             "role": "system",
-            "content": f"You are a Salesforce {flow_type} Flow XML generator. Use ALL provided patterns to ensure valid metadata structure."
+            "content": f"You are a Salesforce {flow_type_display} Flow XML generator. Use ALL provided patterns to ensure valid metadata structure."
         },
         {
             "role": "user",
@@ -687,5 +781,5 @@ if xml_text.startswith("```xml"):
 elif xml_text.startswith("```"):
     xml_text = xml_text.split("```")[1].split("```")[0].strip()
 
-print(f"\nGenerated {flow_type} Flow XML:\n")
+print(f"\nGenerated {flow_type_display} Flow XML:\n")
 print(xml_text)
